@@ -1,0 +1,447 @@
+---
+title: "rr_tsa_shinyapp"
+author: "Mateusz Kijewski"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{rr_tsa_shinyapp}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+
+## General description
+
+The project enables user to run Shiny app for Time series analysis. Also it implements
+S4 class tsExt which extends the xts class with more methods for plotting or testing the time series.
+
+
+## User step by step guide
+
+The first page of the application is the Home page – here a user can upload a .CSV file which
+will be used in further steps. The file needs to be the time series format (first column is data index
+and second one is time series) – we provide a sample dataset to test the application (demo.csv).
+There is also a “Create RMarkdown report” button on this page, which can be used to generate a
+file with the analysis with default parameters.
+
+In the second tab (Overview) there are presented some information about the time series –
+at the top of the page there is a plot which presents the time series, and at the bottom – basic
+statistics like minimum and maximum value, mean, frequency of the data and range of selected days.
+The title of the plot, as well as frequency and range of the data, can be set at the sidebar on the left.
+
+The next two pages – Seasonality and Stationarity – are the tabs that enable to decompose
+the time series. A user can choose a seasonal component, select test to perform (Kruskal-Wallis, QS,
+KPSS test, Augmented Dickey-Fuller) or differentiate the time series the desired number of times.
+The last tab is a tool for forecasting – here a user can choose a number of observations for
+the testing sample used in prediction, and the method of estimation: Naïve, ARIMA, or EMA. 
+
+## S4 Class description
+
+The tsExt class has following methods:
+
+``` {}
+# Setting values for class attributes
+f = "set_values", signature = c(object="tsExt", dates="ANY", freq="ANY", name="ANY")
+
+# Summarize the time series
+f = "summary", signature = "tsExt"
+
+# Plot the time series using dygraphs
+f = "plot_ts", signature = c("tsExt")
+
+# Plot decomposition of time series or differenced time series depending on type argument
+f = "plot_test", signature = c(object="tsExt", type="ANY", n_dif="ANY", freq="ANY", seas_type="ANY")
+
+# Plot decomposition of time series or differenced time series depending on type argument
+f = "plot_test", signature = c(object="tsExt", type="ANY", n_dif="ANY", freq="ANY", seas_type="ANY")
+
+# Plot decomposition of time series or differenced time series depending on type argument
+f = "plot_test", signature = c(object="tsExt", type="ANY", n_dif="ANY", freq="ANY", seas_type="ANY")
+
+# Tests the stationarity of time series
+f = "test_station", signature = c("tsExt", "character", "numeric")
+
+# Tests the seasonality of time series
+f = "test_season", signature = c("tsExt", "character")
+```
+
+tsExt instance example:
+```{r, echo=FALSE, message=F, warning=F}
+library("shiny")
+library("shinyjs")
+library("shinythemes")
+library("shinydashboard")
+library("tidyverse")
+library("quantmod")
+library('dygraphs')
+library('dplyr')
+library('lubridate')
+library('seasonal')
+library('tseries')
+library('forecast')
+library('assertthat')
+## defining class
+check_input <- function(object) {
+  errors <- character()
+  if (nrow(object@ts) == 0) {
+    msg <- "No valid data provided, 0 complete cases"
+    errors <- c(errors, msg)
+  }
+  if (!(object@freq %in% c('daily', 'weekly', 'monthly', 'quarterly', 'yearly'))) {
+    msg <- "Wrong data frequency, choose from: 'daily', 'weekly', 'monthly', 'quarterly', 'yearly' "
+    errors <- c(errors, msg)
+  }
+  
+  if (length(errors) == 0) TRUE else errors
+}
+tsExt <- setClass('tsExt',
+                  slots = c(ts = "xts",
+                            name = "character",
+                            freq = "character",
+                            base_ts = "xts"),
+                  prototype = c(name = "", freq="daily", base_ts=xts()),
+                  validity = check_input
+)
+
+#init
+setMethod(f = "initialize", signature = "tsExt",
+          function( .Object, ts, name, freq) 
+          { 
+            .Object@ts <- ts
+            .Object@name <- name
+            .Object@freq <- freq
+            if(length(names(.Object@ts)) != 1)
+              warning('Wrong input format, selected only first column')
+            .Object@ts <- .Object@ts[,1]
+            .Object@ts[,1] <- as.numeric(.Object@ts[,1])
+            .Object@ts <- .Object@ts[complete.cases(.Object@ts ),]
+            #create copy of base ts for further analysis
+            .Object@base_ts <- .Object@ts
+            
+            .Object@ts <- get(paste0('apply.',.Object@freq))(.Object@base_ts, FUN=mean)
+            return(.Object)
+          } 
+)
+
+#set values
+setGeneric(name = "set_values",function(object, dates, freq, name) standardGeneric("set_values"))
+setMethod(f = "set_values", signature = c(object="tsExt", dates="ANY", freq="ANY", name="ANY"), 
+          definition = function(object, dates, freq, name){
+            if(!missing(freq)) object@freq <- freq
+            if(!missing(name)) object@name <- name
+            if(!missing(dates)) object@ts <- get(paste0('apply.',object@freq))(object@base_ts[dates], FUN=mean)
+            else object@ts <- get(paste0('apply.',object@freq))(object@base_ts, FUN=mean)
+            return(object)
+          })
+#new summary
+setMethod(f = "summary", signature = "tsExt",
+          function(object) 
+          { 
+            data.frame(
+              name = object@name,
+              min = min(object@ts),
+              max = max(object@ts),
+              mean = mean(object@ts),
+              freq = object@freq,
+              days = as.numeric(max(index(object@ts)) - min(index(object@ts)))
+              
+            )
+          } 
+)
+
+#plot
+# plot time series
+setGeneric(name = "plot_ts",function(object) standardGeneric("plot_ts"))
+setMethod(f = "plot_ts", signature = c("tsExt"),
+          function(object) 
+          { 
+            dygraph(object@ts, main=object@name, width = (1000), height = (500)) %>%
+              dyAxis("x", label = "Date", axisLabelFormatter = "function(d) { return d.getFullYear() }", 
+                     ticker="function(a, b, pixels, opts, dygraph, vals) {
+                     return Dygraph.getDateAxis(a, b, Dygraph.ANNUAL, opts, dygraph)}") %>%
+              dyAxis("y", label = "Values")
+            } 
+)
+
+# plot stationarity/seasonality
+setGeneric(name = "plot_test",function(object, type, n_dif, freq, seas_type) standardGeneric("plot_test"))
+
+setMethod(f = "plot_test", signature = c(object="tsExt", type="ANY", n_dif="ANY", freq="ANY", seas_type="ANY"),
+          definition = function(object, type, n_dif, freq, seas_type){
+            if(missing(type)) type <- 'station'
+            if(type == 'station'){
+              if(missing(n_dif)) n_dif <- 1
+              validate_that(n_dif%%1==0,msg="n_dif must be an integer!")
+              validate_that(nrow(object@ts)>0,msg="Number of rows must be higher than number of diff")
+              data <- object@ts
+              print(data[1:5])
+              if(n_dif>=1){
+                for( i in 1:n_dif)
+                  data <- diff(data)
+              }
+              dygraph(data, main=paste(object@name, 'diff:',n_dif), width = (1000), height = (500)) %>%
+                dyAxis("x", label = "Date", axisLabelFormatter = "function(d) { return d.getFullYear() }", 
+                       ticker="function(a, b, pixels, opts, dygraph, vals) {
+                       return Dygraph.getDateAxis(a, b, Dygraph.ANNUAL, opts, dygraph)}") %>%
+                dyAxis("y", label = "Values")
+              
+          } else if(type == 'season'){
+            if(missing(seas_type)) seas_type <- 'additive'
+            if(missing(freq)) freq <- object@freq
+            freq_tab <-  c(365,52,12,4,2)
+            freq_names <- c('daily', 'weekly', 'monthly', 'quarterly', 'yearly')
+            validate_that(freq %in% freq_names,
+                          msg="Wrong data frequency, choose from: 'daily', 'weekly', 'monthly', 'quarterly', 'yearly'")
+            validate_that(seas_type %in% c('multiplicative', 'additive'), msg="Wrong seasonality type, choose from: 'multiplicative', 'additive'")
+            validate_that(match(freq,freq_names)>=match(object@freq,freq_names), msg="Wrong seasonality type, choose from: 'multiplicative', 'additive'")
+            plot(decompose(ts(object@ts, frequency = freq_tab[match(object@freq,freq_names)]), type=seas_type))
+          } else {
+            stop("Wrong type, choose from: 'station', 'season'")
+          }
+            
+          }
+)
+
+
+
+# provide statistics for stationarity/seasonality
+
+setGeneric(name = "test_station",function(object, test, n_dif) standardGeneric("test_station"))
+
+setMethod(f = "test_station", signature = c("tsExt", "character", "numeric"),
+          definition = function(object, test, n_dif){
+            data <- object@ts
+            if(n_dif>=1){
+              for( i in 1:n_dif)
+                data <- diff(data)
+            }
+            data <- data[(n_dif+1):nrow(data)]
+            print(data[1:5])
+            if(test == 'all'){
+              a_test <- adf.test(data)
+              k_test <- kpss.test(data)
+              data.frame(
+                name = c("ADF test","KPSS test"),
+                null = c("Non-stationary data", "Stationary data"),
+                stat_val = c(as.numeric(a_test$statistic),as.numeric(k_test$statistic)),
+                pval = c(as.numeric(a_test$p.value),as.numeric(k_test$p.value))
+              )
+            } else if(test == 'kpss'){
+              k_test <- kpss.test(data)
+              data.frame(
+                name = c("KPSS test"),
+                null = c("Non-stationary data"),
+                stat_val = c(as.numeric(k_test$statistic)),
+                pval = c(as.numeric(k_test$p.value))
+              )
+            } else if(test == 'adf'){
+              a_test <- adf.test(data)
+              data.frame(
+                name = c("ADF test"),
+                null = c("Non-stationary data"),
+                stat_val = c(as.numeric(a_test$statistic)),
+                pval = c(as.numeric(a_test$p.value))
+              )
+            }  else {
+              stop("Wrong test, choose from: 'all', 'adf', 'kpss")
+            }
+          }
+)
+
+# provide statistics for stationarity/seasonality
+
+# provide statistics for stationarity/seasonality
+
+setGeneric(name = "test_season",function(object, test) standardGeneric("test_season"))
+
+setMethod(f = "test_season", signature = c("tsExt", "character"),
+          definition = function(object, test){
+            a <- as.numeric(object@ts)
+            freq_tab <-  c(365,52,12,4,2)
+            freq_names <- c('daily', 'weekly', 'monthly', 'quarterly', 'yearly')
+            f <- freq_tab[match(object@freq, freq_names)]
+            b <- rep(1:f,length(a))[1:length(a)]
+            
+            if(test == 'all'){
+              qs <- qs(seas(ts(apply.monthly(object@ts,FUN=mean),start=1950,frequency=12)))
+              c <- kruskal.test(a ~ b)
+              data.frame(
+                name = c("Kruskal-Wallis test","QS test"),
+                null = c("Seasonal component don't exists","Seasonal component don't exists"),
+                stat_val = c(as.numeric(c$statistic),as.numeric(qs[,1][1])),
+                pval = c(as.numeric(c$p.value),as.numeric(qs[,2][1]))
+              )
+            } else if(test == 'kw'){
+              c <- kruskal.test(a ~ b)
+              data.frame(
+                name = "Kruskal-Wallis test",
+                null = "Seasonal component don't exists",
+                stat_val = as.numeric(c$statistic),
+                pval = as.numeric(c$p.value)
+              )
+            } else if(test == 'qs'){
+              qs <- qs(seas(ts(apply.monthly(object@ts,FUN=mean),start=1950,frequency=12)))
+              data.frame(
+                name = "QS test",
+                null = "Seasonal component don't exists",
+                stat_val = as.numeric(qs[,1][1]),
+                pval = as.numeric(qs[,2][1])
+              )
+            } else {
+              stop("Wrong type, choose from: 'all', 'kw', 'qs'")
+            }
+          }
+)
+# predict values
+
+setGeneric(name = "predict_ts",function(object, steps, method, graph) standardGeneric("predict_ts"))
+
+setMethod(f = "predict_ts", signature = c("tsExt", "numeric", "character", "logical"),
+          definition = function(object, steps, method, graph){
+            data = object@ts
+            split = nrow(object@ts)-steps
+            training = as.numeric(object@ts[1:split])
+            testing = as.numeric(object@ts[(split+1):nrow(object@ts)])
+            if(method == 'all'){
+              pred1 = as.numeric(ses(training,steps)$mean)
+              data$ema <- c(training,pred1)
+              err1 = testing - pred1
+              mod = auto.arima(training)
+              pred2 = as.numeric(forecast(mod,h=steps)$mean)
+              data$arima <- c(training,pred2)
+              err2 = testing - pred2 
+              pred3 = as.numeric(naive(training,steps)$mean)
+              data$naive <- c(training,pred3)
+              err3 = testing - pred3
+              if(graph){
+                return({
+                  dygraph(data[(nrow(data)-2*steps):nrow(data)], main=paste("Comparison of three methods for",object@name), width = (1000), height = (500)) %>%
+                    dyAxis("x", label = "Date", axisLabelFormatter = "function(d) { return d.getFullYear() }", 
+                           ticker="function(a, b, pixels, opts, dygraph, vals) {
+                           return Dygraph.getDateAxis(a, b, Dygraph.ANNUAL, opts, dygraph)}") %>%
+                    dyAxis("y", label = "Values")
+              })
+              }
+              statistics <- data.frame()
+              for(j in list(err1,err2,err3)){
+                i <- j[1]
+                MSE <- mean(abs(i)^2)
+                RMSE <- sqrt(MSE)
+                MAE <- mean(abs(i))
+                MAPE <- mean(abs(i)/testing)
+                next_row <- data.frame(MSE,RMSE,MAE,MAPE)
+                statistics <- rbind(statistics,next_row)
+              }
+              statistics
+              } else if(method == 'ema'){
+                pred = as.numeric(ses(training,steps)$mean)
+                err = testing - pred
+                data$ema <- c(training,pred)
+                if(graph){
+                  return({
+                    dygraph(data[(nrow(data)-2*steps):nrow(data)], main=paste("Exponential smoothing for ",object@name), width = (1000), height = (500)) %>%
+                      dyAxis("x", label = "Date", axisLabelFormatter = "function(d) { return d.getFullYear() }", 
+                             ticker="function(a, b, pixels, opts, dygraph, vals) {
+                             return Dygraph.getDateAxis(a, b, Dygraph.ANNUAL, opts, dygraph)}") %>%
+                      dyAxis("y", label = "Values")
+                })
+                }
+                
+                statistics <- data.frame()
+                for(j in list(err)){
+                  i <- j[1]
+                  Name <- 'EMA'
+                  MSE <- mean(abs(i)^2)
+                  RMSE <- sqrt(MSE)
+                  MAE <- mean(abs(i))
+                  MAPE <- mean(abs(i)/testing)
+                  next_row <- data.frame(MSE,RMSE,MAE,MAPE)
+                  statistics <- rbind(statistics,next_row)
+                }
+                statistics
+                } else if(method == 'arima'){
+                  mod = auto.arima(training)
+                  pred = as.numeric(forecast(mod,h=steps)$mean)
+                  err = testing - pred
+                  data$arima <- c(training,pred)
+                  if(graph){
+                    return({
+                      dygraph(data[(nrow(data)-2*steps):nrow(data)], main=paste("Arima prediction for ",object@name), width = (1000), height = (500)) %>%
+                        dyAxis("x", label = "Date", axisLabelFormatter = "function(d) { return d.getFullYear() }", 
+                               ticker="function(a, b, pixels, opts, dygraph, vals) {
+                               return Dygraph.getDateAxis(a, b, Dygraph.ANNUAL, opts, dygraph)}") %>%
+                        dyAxis("y", label = "Values")
+                  })
+                  }
+                  statistics <- data.frame()
+                  for(j in list(err)){
+                    i <- j[1]
+                    Name <- 'ARIMA'
+                    MSE <- mean(abs(i)^2)
+                    RMSE <- sqrt(MSE)
+                    MAE <- mean(abs(i))
+                    MAPE <- mean(abs(i)/testing)
+                    next_row <- data.frame(MSE,RMSE,MAE,MAPE)
+                    statistics <- rbind(statistics,next_row)
+                  }
+                  statistics
+                  } else if(method == 'naive'){
+                    pred = as.numeric(naive(training,steps)$mean)
+                    err = testing - pred
+                    data$naive <- c(training,pred)
+                    if(graph){
+                      return({
+                        dygraph(data[(nrow(data)-2*steps):nrow(data)], main=paste("Naive prediction for ",object@name), width = (1000), height = (500)) %>%
+                          dyAxis("x", label = "Date", axisLabelFormatter = "function(d) { return d.getFullYear() }", 
+                                 ticker="function(a, b, pixels, opts, dygraph, vals) {
+                                 return Dygraph.getDateAxis(a, b, Dygraph.ANNUAL, opts, dygraph)}") %>%
+                          dyAxis("y", label = "Values")
+                    })
+                    }
+                    statistics <- data.frame()
+                    for(j in list(err)){
+                      i <- j[1]
+                      Name <- 'Naive'
+                      MSE <- mean(abs(i)^2)
+                      RMSE <- sqrt(MSE)
+                      MAE <- mean(abs(i))
+                      MAPE <- mean(abs(i)/testing)
+                      next_row <- data.frame(MSE,RMSE,MAE,MAPE)
+                      statistics <- rbind(statistics,next_row)
+                    }
+                    statistics
+                    } else {
+                      stop("Wrong type, choose from: 'arima', 'ema', 'naive'")
+                    }
+            
+                  }
+)
+```
+
+
+``` {r}
+test = read.table('../sample_data/demo.csv', header=TRUE, sep=',', colClasses=c("Date", rep("numeric", 6)))
+data = as.xts(test[-1], order.by=test[[1]])
+data = tsExt(data, name='Test', 'daily')
+
+plot_ts(data)
+
+summary(data)
+
+test_season(data, 'all')
+
+plot_test(data, type = 'season', seas_type='multiplicative')
+
+test_station(data, 'all', 1)
+
+plot_test(data, type = 'station', n_dif=1)
+
+```
+
