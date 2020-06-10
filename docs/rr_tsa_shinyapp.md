@@ -16,50 +16,80 @@ knitr::opts_chunk$set(
 )
 ```
 
-Vignettes are long form documentation commonly included in packages. Because they are part of the distribution of the package, they need to be as compact as possible. The `html_vignette` output type provides a custom style sheet (and tweaks some options) to ensure that the resulting html is as small as possible. The `html_vignette` format:
 
-- Never uses retina figures
-- Has a smaller default figure size
-- Uses a custom CSS stylesheet instead of the default Twitter Bootstrap style
+## General description
 
-## Vignette Info
+The project enables user to run Shiny app for Time series analysis. Also it implements
+S4 class tsExt which extends the xts class with more methods for plotting or testing the time series.
 
-Note the various macros within the `vignette` section of the metadata block above. These are required in order to instruct R how to build the vignette. Note that you should change the `title` field and the `\VignetteIndexEntry` to match the title of your vignette.
 
-## Styles
+## User step by step guide
 
-The `html_vignette` template includes a basic CSS theme. To override this theme you can specify your own CSS in the document metadata as follows:
+The first page of the application is the Home page – here a user can upload a .CSV file which
+will be used in further steps. The file needs to be the time series format (first column is data index
+and second one is time series) – we provide a sample dataset to test the application (demo.csv).
+There is also a “Create RMarkdown report” button on this page, which can be used to generate a
+file with the analysis with default parameters.
 
-    output: 
-      rmarkdown::html_vignette:
-        css: mystyles.css
+In the second tab (Overview) there are presented some information about the time series –
+at the top of the page there is a plot which presents the time series, and at the bottom – basic
+statistics like minimum and maximum value, mean, frequency of the data and range of selected days.
+The title of the plot, as well as frequency and range of the data, can be set at the sidebar on the left.
 
-## Figures
+The next two pages – Seasonality and Stationarity – are the tabs that enable to decompose
+the time series. A user can choose a seasonal component, select test to perform (Kruskal-Wallis, QS,
+KPSS test, Augmented Dickey-Fuller) or differentiate the time series the desired number of times.
+The last tab is a tool for forecasting – here a user can choose a number of observations for
+the testing sample used in prediction, and the method of estimation: Naïve, ARIMA, or EMA. 
 
-The figure sizes have been customised so that you can easily put two images side-by-side. 
+## S4 Class description
 
-```{r, fig.show='hold'}
-plot(1:10)
-plot(10:1)
+The tsExt class has following methods:
+
+``` {r}
+# Setting values for class attributes
+f = "set_values", signature = c(object="tsExt", dates="ANY", freq="ANY", name="ANY")
+
+# Summarize the time series
+f = "summary", signature = "tsExt"
+
+# Plot the time series using dygraphs
+f = "plot_ts", signature = c("tsExt")
+
+# Plot decomposition of time series or differenced time series depending on type argument
+f = "plot_test", signature = c(object="tsExt", type="ANY", n_dif="ANY", freq="ANY", seas_type="ANY")
+
+# Plot decomposition of time series or differenced time series depending on type argument
+f = "plot_test", signature = c(object="tsExt", type="ANY", n_dif="ANY", freq="ANY", seas_type="ANY")
+
+# Plot decomposition of time series or differenced time series depending on type argument
+f = "plot_test", signature = c(object="tsExt", type="ANY", n_dif="ANY", freq="ANY", seas_type="ANY")
+
+# Tests the stationarity of time series
+f = "test_station", signature = c("tsExt", "character", "numeric")
+
+# Tests the seasonality of time series
+f = "test_season", signature = c("tsExt", "character")
 ```
 
-You can enable figure captions by `fig_caption: yes` in YAML:
+tsExt instance example:
 
-    output:
-      rmarkdown::html_vignette:
-        fig_caption: yes
+``` {r}
+test <- read.table('data.csv',header=TRUE,sep=',',colClasses=c("Date", rep("numeric", 1)))
+test <- as.xts(test[-1], order.by=test[[1]])
+data <- tsExt(test, 'Time series', 'daily')
 
-Then you can use the chunk option `fig.cap = "Your figure caption."` in **knitr**.
+plot_ts(data)
 
-## More Examples
+summary(data)
 
-You can write math expressions, e.g. $Y = X\beta + \epsilon$, footnotes^[A footnote here.], and tables, e.g. using `knitr::kable()`.
+test_season(data, 'all)
 
-```{r, echo=FALSE, results='asis'}
-knitr::kable(head(mtcars, 10))
+plot_test(data, type = 'season', seas_type='multiplicative')
+
+test_station(data, input$station_test, 1)
+
+plot_test(data, type = 'station', n_dif=1)
+
 ```
 
-Also a quote using `>`:
-
-> "He who gives up [code] safety for [code] speed deserves neither."
-([via](https://twitter.com/hadleywickham/status/504368538874703872))
