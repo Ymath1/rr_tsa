@@ -4,14 +4,24 @@ library(testthat)
 context("Test Shiny app")
 
 # open Shiny app and PhantomJS
-getwd()
-app <- ShinyDriver$new("D:/OneDrive/current_projects/rr_tsa/app.R")
+app <- ShinyDriver$new("../")
 
-test_that("output is correct", {
+test_that("data is correct", {
     #set input data
-    app$setInputs(fileinput = 'sample_data/demo.csv')
-    expect_s4_class(myData(), "tsExt")  
+    app$uploadFile(fileinput = '../sample_data/demo.csv')
+    a = app$getTitle()
+    print(a)
+    expect(as.character(a) == "Time series analysis", "Application loaded properly")  
 })
 
+
+test_that("plotting time series", {
+    #set input data
+    app$uploadFile(fileinput = '../sample_data/demo.csv')
+    app$setInputs(sidebarItemExpanded = "Overview")
+    app$setInputs(title = "asd")
+    app$setInputs(tabs = "Overview_menu")
+    expectUpdate(app, output = 'general_plot',timeout=6000)
+})
 # stop the Shiny app
 app$stop()
