@@ -365,9 +365,9 @@ ui <- dashboardPage(
   skin = "green",
   
   dashboardHeader(title = "Time series analysis", titleWidth = sidebarwidth),
-
-  dashboardSidebar(
   
+  dashboardSidebar(
+    
     width = sidebarwidth, 
     
     
@@ -379,7 +379,7 @@ ui <- dashboardPage(
       
       menuItem("Overview", icon = icon("eye"), tabName = "Overview_menu",
                
-
+               
                textInput("title", "Title of the series", ""),
                
                selectInput("data_freq","Select data frequency:",     
@@ -387,7 +387,7 @@ ui <- dashboardPage(
                              "Quarterly" = 'quarterly')),
                
                uiOutput("dates_slide"),
-              
+               
                menuSubItem('Show results',
                            tabName = 'Overview_menu',
                            icon = icon('line-chart'))
@@ -429,7 +429,7 @@ ui <- dashboardPage(
       menuItem("Forecasting", icon = icon("arrow-right"), tabName = "Forecasting",
                
                numericInput("forecast_steps","Number of observations for the testing sample:",     
-                           1,1,30,1),
+                            1,1,30,1),
                
                selectInput("forecast_method","Select method:",     
                            c("All" = 'all',"Naive" = 'naive',"ARIMA" = 'arima',"EMA" = 'ema')),
@@ -449,22 +449,22 @@ ui <- dashboardPage(
     
   ), #dashboard sidebar
   
-
   
-
-
-
-    # -----------------------------------------------------------------------   
-    
   
-dashboardBody(
+  
+  
+  
+  # -----------------------------------------------------------------------   
+  
+  
+  dashboardBody(
     
     
     tabItems(
       tabItem(tabName = "Home",
               h2("Welcome to our application!"),
               h4("Please upload your CSV file below:"),
-            
+              
               fileInput(
                 inputId = "fileinput",
                 label = " ",
@@ -476,6 +476,10 @@ dashboardBody(
               ),
               
               
+              useShinyjs(),
+              actionButton("create_rep_button", "Create RMarkdown report")
+              
+              
               # textOutput('contents')
       ),
       
@@ -484,7 +488,7 @@ dashboardBody(
               dygraphOutput('general_plot'),
               h3('Simple statistics of time series'),
               tableOutput('general_summary')
-
+              
       ),
       
       tabItem(tabName = "Seasonality",
@@ -516,11 +520,11 @@ dashboardBody(
       #         h4("this is the chart2 tab page"))
       
       
-      ) # Tabitems
-
-
+    ) # Tabitems
+    
+    
   ) # dashboard body
-
+  
 ) # dashboard page
 
 
@@ -528,8 +532,17 @@ dashboardBody(
 # -----------------------------------------------------------------------
 # Define server logic required to draw a histogram ----
 server <- function(input, output, session) {
-
-
+  
+  observeEvent(input$create_rep_button, {
+    write.zoo(myData()@ts,'data.csv',sep=',')
+    rmarkdown::render('Report.Rmd')
+    showModal(modalDialog('HTML file generated'))
+  })
+  observe({if (is.null(input$fileinput))
+    shinyjs::disable("create_rep_button")
+    else
+      shinyjs::enable("create_rep_button")})
+  
   infile <- reactive({
     infile <- input$fileinput
     if (is.null(infile)) {
@@ -616,7 +629,7 @@ server <- function(input, output, session) {
   })
   
   
-
+  
 }
 
 
